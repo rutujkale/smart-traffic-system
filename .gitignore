@@ -33,3 +33,6 @@ Thumbs.db
 
 # Optional — only needed for real quantum hardware
 # dwave-system
+
+# Duplicate snapshot — not part of the active project
+smart-traffic-system_1/
