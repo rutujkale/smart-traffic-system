@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.distribution/
+build/
+develop-eggs/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.venv
+venv
+env/
+
+# Video/Artifacts
+*.mp4
+*.avi
+*.mov
+generated*.jsonl
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Optional — only needed for real quantum hardware
+# dwave-system

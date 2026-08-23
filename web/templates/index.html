@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Traffic Management — Control Room</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="signal-dot" id="signal-dot"></span>
+      <h1>SMART TRAFFIC <span class="accent">CONTROL</span></h1>
+    </div>
+    <div class="topbar-right">
+      <span class="eyebrow">LIVE FEED</span>
+      <span id="clock" class="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel panel-hero">
+      <span class="eyebrow">Current status</span>
+      <div class="hero-row">
+        <div class="hero-number" id="congestion-level">—</div>
+        <div class="hero-label">CONGESTION LEVEL</div>
+      </div>
+      <div class="level-track">
+        <div class="level-fill" id="level-fill"></div>
+      </div>
+      <div class="level-legend">
+        <span>FREE</span><span>MODERATE</span><span>HEAVY</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <span class="eyebrow">Total vehicles counted</span>
+      <div class="big-stat" id="total-vehicles">0</div>
+    </section>
+
+    <section class="panel panel-wide">
+      <span class="eyebrow">By vehicle class</span>
+      <div id="class-bars" class="bars"></div>
+    </section>
+
+    <section class="panel panel-wide">
+      <span class="eyebrow">Volume over time</span>
+      <canvas id="timeseries" height="90"></canvas>
+    </section>
+
+    <section class="panel panel-wide" id="signal-panel" style="display:none;">
+      <span class="eyebrow">Signal timing plan · <span id="solver-label"></span></span>
+      <div id="signal-bars" class="bars" style="margin-top:14px;"></div>
+      <div class="footnote" id="cycle-note"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Python · YOLOv8 · Hadoop Streaming · Flask — data source: <code>events.jsonl</code>
+  </footer>
+
+<script>
+const COLORS = { car: '#5ec9a4', truck: '#e8b04b', bus: '#5b9cf6', motorcycle: '#e8607a' };
+
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toTimeString().split(' ')[0];
+}
+setInterval(tick, 1000); tick();
+
+async function refreshSummary() {
+  const res = await fetch('/api/summary');
+  const data = await res.json();
+
+  document.getElementById('total-vehicles').textContent = data.total_vehicles;
+
+  const level = (data.current_congestion || 'unknown').toLowerCase();
+  const levelEl = document.getElementById('congestion-level');
+  levelEl.textContent = level.toUpperCase();
+  levelEl.className = 'hero-number level-' + level;
+
+  const fillPct = { free: 25, moderate: 60, heavy: 95, unknown: 0 }[level] ?? 0;
+  document.getElementById('level-fill').style.width = fillPct + '%';
+  document.getElementById('level-fill').className = 'level-fill level-' + level;
+  document.getElementById('signal-dot').className = 'signal-dot dot-' + level;
+
+  const barsEl = document.getElementById('class-bars');
+  barsEl.innerHTML = '';
+  const entries = Object.entries(data.by_class || {});
+  const max = Math.max(1, ...entries.map(([, v]) => v));
+  for (const [cls, count] of entries) {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <span class="bar-label">${cls}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count/max)*100}%; background:${COLORS[cls]||'#8892a6'}"></div></div>
+      <span class="bar-value">${count}</span>`;
+    barsEl.appendChild(row);
+  }
+}
+
+async function refreshTimeseries() {
+  const res = await fetch('/api/timeseries');
+  const data = await res.json();
+  const canvas = document.getElementById('timeseries');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.clientWidth;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (data.length === 0) return;
+  const max = Math.max(1, ...data.map(d => d.count));
+  const w = canvas.width / data.length;
+
+  ctx.fillStyle = '#5ec9a4';
+  data.forEach((d, i) => {
+    const h = (d.count / max) * (canvas.height - 10);
+    ctx.fillRect(i * w + 2, canvas.height - h, w - 4, h);
+  });
+}
+
+async function refreshSignalPlan() {
+  const res = await fetch('/api/signal-plan');
+  const data = await res.json();
+  const panel = document.getElementById('signal-panel');
+  if (!data.available) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  document.getElementById('solver-label').textContent = data.solver;
+  document.getElementById('cycle-note').textContent =
+    `Cycle length: ${data.cycle_time}s · recomputed each cycle from live lane arrivals`;
+
+  const barsEl = document.getElementById('signal-bars');
+  barsEl.innerHTML = '';
+  const entries = Object.entries(data.green_seconds || {});
+  const max = Math.max(1, ...entries.map(([, v]) => v));
+  for (const [lane, secs] of entries) {
+    const count = (data.lane_counts || {})[lane] ?? 0;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <span class="bar-label">${lane}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(secs/max)*100}%; background:#e8b04b"></div></div>
+      <span class="bar-value">${secs}s <span style="color:var(--muted); font-size:11px;">(${count} veh)</span></span>`;
+    barsEl.appendChild(row);
+  }
+}
+
+refreshSummary();
+refreshTimeseries();
+refreshSignalPlan();
+setInterval(refreshSummary, 5000);
+setInterval(refreshTimeseries, 5000);
+setInterval(refreshSignalPlan, 5000);
+</script>
+</body>
+</html>
